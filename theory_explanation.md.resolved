@@ -1,0 +1,40 @@
+# Digital Communications Lab - Theory & Logic
+
+This document explains the fundamental digital signal processing (DSP) and communication theory concepts simulated in the **Digital Comms Lab**.
+
+## 1. Source & Analog Signal Generation
+Before transmission, a digital message (like the string `"HELLO"`) must be converted into a format a physical channel can carry. 
+* **ASCII Conversion:** Each character is translated into 8-bit ASCII binary.
+* **Baseband Signal:** These bits form a basic digital square wave (Non-Return-to-Zero or NRZ).
+* **Analog Filtering:** Real-world signals aren't perfect square waves. The simulation passes the square wave through an RC low-pass filter to round off the harsh edges, creating a continuously varying, band-limited analog signal. This mimics how a real baseband analog signal appears before digitization.
+
+## 2. PCM (Pulse Code Modulation)
+Pulse Code Modulation is the standard method for converting an analog signal into a digital bitstream. It happens in three steps:
+
+### A. Sampling
+* **Concept:** Instead of transmitting the continuous wave, we measure (sample) its amplitude at discrete intervals.
+* **Nyquist Theorem:** To perfectly reconstruct the original signal, the sampling rate ($f_s$) must be at least twice the highest frequency present in the signal ($f_{max}$). If $f_s < 2 f_{max}$, **aliasing** occurs, corrupting the signal.
+
+### B. Quantisation
+* **Concept:** The sampled amplitudes are continuous (infinite possible values), but computers need discrete numbers. Quantisation maps these amplitudes to the nearest available fixed level.
+* **Bit Depth:** The number of bits dictates the number of levels. For example, 3 bits provide $2^3 = 8$ levels. Higher bit depths reduce the "staircase" effect and minimize **quantisation error** (the difference between the actual amplitude and the rounded amplitude).
+* **SQNR (Signal-to-Quantisation-Noise Ratio):** A measure of the quality of the quantisation. Adding 1 bit of depth improves the SQNR by approximately 6 dB.
+
+### C. Encoding
+* **Concept:** The discrete quantised levels are then converted into a binary sequence (e.g., Level 5 becomes `101` in 3-bit encoding). This creates our final transmitted binary bitstream.
+
+## 3. Modulation (ASK, FSK, PSK)
+To transmit the binary bitstream over a medium (like air or a cable/fiber), we need to superimpose it onto a high-frequency continuous **carrier wave**. 
+* **ASK (Amplitude Shift Keying):** Changes the *amplitude* of the carrier wave. A `1` might be maximum amplitude, while a `0` is a lower amplitude.
+* **FSK (Frequency Shift Keying):** Changes the *frequency* of the carrier wave. A `1` uses a slightly higher frequency, and a `0` uses a slightly lower frequency (Deviation $\Delta f$).
+* **PSK (Phase Shift Keying):** Changes the *phase* of the carrier wave. In BPSK, a `1` has a normal phase, while a `0` shifts the wave by exactly $180^\circ$ ($\pi$ radians). 
+
+## 4. Noise
+Real-world channels introduce random noise (AWGN - Additive White Gaussian Noise) which corrupts the modulated signal.
+* **SNR (Signal-to-Noise Ratio):** The ratio of the signal power to the noise power, measured in Decibels (dB). Higher SNR means a cleaner signal.
+* **BER (Bit Error Rate):** As noise increases (SNR decreases), the receiver starts misinterpreting `1`s as `0`s and vice-versa. Different modulation schemes have different theoretical BER curves.
+
+## 5. Error Correction
+To combat noise, we add redundant "parity" bits to the message before transmission so the receiver can detect and fix flipped bits.
+* **Hamming(7,4) Code:** takes 4 data bits and adds 3 parity bits to make a 7-bit codeword. By checking the mathematical relationship of the received bits, it can detect exactly which bit flipped and correct it (single-error correction).
+* **CRC-8 (Cyclic Redundancy Check):** Computes a checksum hash for the entire message. While it cannot easily correct errors, it is excellent at *detecting* if any errors occurred during transmission.

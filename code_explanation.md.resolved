@@ -1,0 +1,43 @@
+# Digital Communications Lab - Code Architecture
+
+This document explains the internal software architecture and how the specific code logic functions in the **Digital Comms Lab** React project ([App.jsx](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx)).
+
+## 1. Global State Management (`st`)
+The entire application is driven by a single React state object (`st`) that stores all user-adjustable parameters:
+```javascript
+const [st, setSt] = useState({
+  message: "HELLO",         // The input string
+  sigFreq: 800,             // Analog signal frequency
+  fs: 6400,                 // Sampling frequency
+  bits: 8,                  // Quantisation bit depth
+  modType: "PSK",           // Modulation scheme
+  fc: 8,                    // Carrier Frequency
+  // ...other parameters like noisePower, fskDf, etc.
+});
+```
+We use a centralized `dispatch` function to update these values from the UI sliders.
+
+## 2. The DSP Pipeline (`useMemo`)
+The core genius of the app is that **data flows sequentially through a pipeline**. Whenever the user changes a parameter (like dragging a slider), the `useMemo` hook recalculates the entire digital signal processing pipeline instantly:
+
+1. **`msgToBits`**: Converts the string into an array of `1`s and `0`s.
+2. **[bitsToAnalog](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#14-31)**: Expands those bits and applies a mathematical low-pass RC filter and slight sinusoidal "wobble" to simulate a continuous, smooth analog baseline.
+3. **[sampleSignal](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#32-53)**: Extracts discrete points (`sampVals`) from the analog array at intervals determined by the user's sampling frequency (`fs`).
+4. **[quantise](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#54-65)**: Maps those `sampVals` to a discrete set of horizontal levels bounded between `-1.0` and `1.0`.
+5. **[modulate](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#76-92)**: Generates a high-resolution carrier wave array, mathematically adjusting amplitude, frequency, or phase based on the bits.
+6. **[addAWGN](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#95-96)**: Uses the Box-Muller transform to mathematically generate normal-distributed Gaussian noise, adding it to the modulated carrier wave based on the target SNR.
+
+Because everything is inside a `useMemo` dependent on `st`, the entire pipeline stays perfectly synchronized without complex cascading state updates.
+
+## 3. High-Performance Canvas Rendering
+React is great for UI forms and data, but terrible at rendering 10,000+ tiny DOM nodes for sine waves. For the waveform visualizations, the code uses the HTML `<canvas>` API via the `setupCanvas` and [drawWave](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#159-166) helper functions.
+
+* **`useCallback` drawing loop:** Each tab (e.g., [PCMTab](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#292-396), [ModTab](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#397-500)) defines a [draw](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#152-159) function.
+* **`requestAnimationFrame`:** A `useEffect` hook triggers the [draw](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#152-159) function recursively using `requestAnimationFrame`. This allows the canvas to smoothly update at 60 Frames-Per-Second without triggering expensive React component re-renders.
+* High-DPI support: `setupCanvas` scales the canvas correctly using `window.devicePixelRatio` so the waveforms look crisp on Retina displays.
+
+## 4. UI Components & Theming
+The project includes a lightweight custom UI design system defined inside the file:
+* **`STYLES` & Theme (`T`)**: A standard JSON dictionary defines all colors, borders, and typography so the UI stays consistent. 
+* **Component Atoms**: Tiny helper components like `<Card>`, `<Metric>`, `<Slider>`, and `<WavePanel>` are built to keep the complex tab components readable.
+* **Pipeline Header**: The [PipelineBar](file:///Users/patelshreymukeshbhai/Desktop/Projectttts/DC/app/src/App.jsx#709-744) component reads the global `st` and `pipeline` results and conditionally displays alerts (e.g., turning text red if Nyquist Aliasing is detected).
