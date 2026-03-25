@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import "./App.css";
 
 // ═══════════════════════════════════════════════════════════════════
 // DSP ENGINE  — one message flows through every stage
@@ -40,13 +41,14 @@ const sampleSignal = (analog, fs, signalHz, samplesPerBit) => {
     const idx = Math.min(N - 1, Math.round(i * ratio));
     sampIdx.push(idx); sampVals.push(analog[idx]);
   }
-  // Reconstruct (nearest-neighbour)
+  // Reconstruct (ZOH: Zero-Order Hold)
   const recon = new Float32Array(N);
+  let currentSamp = 0;
   for (let i = 0; i < N; i++) {
-    let best = Infinity, bv = 0;
-    for (let j = 0; j < sampIdx.length; j++)
-      if (Math.abs(i - sampIdx[j]) < best) { best = Math.abs(i - sampIdx[j]); bv = sampVals[j]; }
-    recon[i] = bv;
+    if (currentSamp < sampIdx.length - 1 && i >= sampIdx[currentSamp + 1]) {
+      currentSamp++;
+    }
+    recon[i] = sampVals[currentSamp];
   }
   return { sampIdx, sampVals, recon };
 };
@@ -102,7 +104,7 @@ const berBPSK = snrDB => 0.5 * erfcApprox(Math.sqrt(Math.pow(10, snrDB / 10)));
 const G74 = [[1,0,0,0,1,1,0],[0,1,0,0,1,0,1],[0,0,1,0,0,1,1],[0,0,0,1,1,1,1]];
 const H74 = [[1,1,0,1,1,0,0],[1,0,1,1,0,1,0],[0,1,1,1,0,0,1]];
 const hammingEncode = nibble => { const c = new Array(7).fill(0); for (let i=0;i<4;i++) for(let j=0;j<7;j++) c[j]=(c[j]+nibble[i]*G74[i][j])%2; return c; };
-const hammingDecode = cw => { const s = new Array(3).fill(0); for(let i=0;i<3;i++) for(let j=0;j<7;j++) s[i]=(s[i]+H74[i][j]*cw[j])%2; const e=s[0]*4+s[1]*2+s[2]; const cor=[...cw]; if(e>0&&e<=7) cor[e-1]^=1; return {corrected:cor,errPos:e>0?e-1:-1}; };
+const hammingDecode = cw => { const s = new Array(3).fill(0); for(let i=0;i<3;i++) for(let j=0;j<7;j++) s[i]=(s[i]+H74[i][j]*cw[j])%2; const e=s[0]*4+s[1]*2+s[2]; const cor=[...cw]; const map = {6:0, 5:1, 3:2, 7:3, 4:4, 2:5, 1:6}; const errPos = e > 0 && map[e] !== undefined ? map[e] : -1; if(errPos >= 0) cor[errPos]^=1; return {corrected:cor,errPos}; };
 const injectErrors = (cw, count) => { const r=[...cw],p=[]; while(p.length<Math.min(count,7)){const x=Math.floor(Math.random()*7);if(!p.includes(x))p.push(x);} p.forEach(x=>r[x]^=1); return {received:r,errorPositions:p}; };
 const crc8 = bytes => { let c=0; bytes.forEach(b=>{c^=b;for(let i=0;i<8;i++)c=c&0x80?((c<<1)^0x07)&0xFF:(c<<1)&0xFF;}); return c; };
 
@@ -110,33 +112,19 @@ const crc8 = bytes => { let c=0; bytes.forEach(b=>{c^=b;for(let i=0;i<8;i++)c=c&
 // THEME
 // ═══════════════════════════════════════════════════════════════════
 const T = {
-  bg:"#F7F6F3", surface:"#FFFFFF", surfaceAlt:"#F2F0EC",
-  border:"#E4E2DC", borderStrong:"#CCCAC3",
-  text:"#18171A", textSub:"#6B6862", textMuted:"#A09C95",
-  blue:"#2154E8", blueLight:"#E8EFFE",
-  teal:"#0A9485", tealLight:"#D0F5F1",
-  amber:"#C47B06", amberLight:"#FEF3C4",
-  red:"#D42020", redLight:"#FCE8E8",
-  green:"#197A3E", greenLight:"#DFF3E8",
-  purple:"#6D28D9", purpleLight:"#EDE9FE",
-  canvasBg:"#EDEBE6", canvasGrid:"rgba(0,0,0,0.06)", canvasGridMid:"rgba(0,0,0,0.12)",
+  bg:"#F1F5F9", surface:"#FFFFFF", surfaceAlt:"#F8FAFC",
+  border:"#E2E8F0", borderStrong:"#CBD5E1",
+  text:"#0F172A", textSub:"#475569", textMuted:"#94A3B8",
+  blue:"#3B82F6", blueLight:"#EFF6FF",
+  teal:"#14B8A6", tealLight:"#F0FDFA",
+  amber:"#F59E0B", amberLight:"#FFFBEB",
+  red:"#EF4444", redLight:"#FEF2F2",
+  green:"#22C55E", greenLight:"#F0FDF4",
+  purple:"#8B5CF6", purpleLight:"#F5F3FF",
+  canvasBg:"#1E293B", canvasGrid:"rgba(148,163,184,0.12)", canvasGridMid:"rgba(148,163,184,0.25)",
+  cyan:"#22D3EE", rose:"#FB7185", indigo:"#6366F1",
 };
-const font = { sans:"'IBM Plex Sans',sans-serif", mono:"'IBM Plex Mono',monospace" };
-
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0;}
-  ::-webkit-scrollbar{width:5px;height:5px;}
-  ::-webkit-scrollbar-thumb{background:#CCCAC3;border-radius:3px;}
-  input[type=range]{-webkit-appearance:none;height:3px;border-radius:2px;background:#E4E2DC;outline:none;cursor:pointer;}
-  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:#2154E8;cursor:pointer;border:2px solid #fff;box-shadow:0 1px 4px rgba(33,84,232,.35);transition:transform .12s;}
-  input[type=range]::-webkit-slider-thumb:active{transform:scale(1.15);}
-  .tpill:hover{color:#18171A!important;}
-  .pnode:hover{border-color:#2154E8!important;background:#E8EFFE!important;}
-  .segopt:hover{background:#F7F6F3!important;}
-  .sbtn:hover{filter:brightness(.96);}
-  .nbtn:hover{background:#F2F0EC!important;}
-`;
+const font = { sans:"'Inter',system-ui,sans-serif", mono:"'JetBrains Mono',ui-monospace,monospace" };
 
 // ═══════════════════════════════════════════════════════════════════
 // CANVAS HELPERS
@@ -155,6 +143,9 @@ const drawBg = (ctx,W,H) => {
   for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(0,H*i/4);ctx.lineTo(W,H*i/4);ctx.stroke();}
   ctx.strokeStyle=T.canvasGridMid; ctx.lineWidth=0.75;
   ctx.beginPath();ctx.moveTo(0,H/2);ctx.lineTo(W,H/2);ctx.stroke();
+  // Y-axis labels
+  ctx.fillStyle="rgba(148,163,184,0.5)"; ctx.font=`9px ${font.mono}`;
+  ctx.fillText("+1",3,H*0.25-3); ctx.fillText("0",3,H*0.5-3); ctx.fillText("-1",3,H*0.75-3);
 };
 const drawWave = (ctx,sig,color,W,H,ymin=-1,ymax=1,lw=1.5,dashed=false) => {
   if(!sig||!sig.length) return;
@@ -168,78 +159,56 @@ const drawWave = (ctx,sig,color,W,H,ymin=-1,ymax=1,lw=1.5,dashed=false) => {
 // SHARED UI ATOMS
 // ═══════════════════════════════════════════════════════════════════
 const Metric = ({label,value,accent}) => (
-  <div style={{background:T.surface,borderRadius:9,padding:"9px 14px",border:`1px solid ${T.border}`,minWidth:90,boxShadow:"0 1px 3px rgba(0,0,0,.04)"}}>
-    <div style={{fontSize:9,color:T.textMuted,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.09em",fontFamily:font.mono}}>{label}</div>
-    <div style={{fontSize:15,fontWeight:600,color:accent||T.text,fontFamily:font.mono,lineHeight:1}}>{value}</div>
+  <div className="metric-card" style={{background:T.surface,borderRadius:10,padding:"10px 16px",border:`1px solid ${T.border}`,minWidth:95,boxShadow:"var(--shadow-sm)",borderTop:`3px solid ${accent||T.blue}22`}}>
+    <div style={{fontSize:9,color:T.textMuted,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.1em",fontFamily:font.mono,fontWeight:500}}>{label}</div>
+    <div style={{fontSize:16,fontWeight:700,color:accent||T.text,fontFamily:font.mono,lineHeight:1}}>{value}</div>
   </div>
 );
 const Badge = ({children,type="green"}) => {
   const m={green:[T.greenLight,T.green],red:[T.redLight,T.red],amber:[T.amberLight,T.amber],purple:[T.purpleLight,T.purple],blue:[T.blueLight,T.blue]};
   const [bg,fg]=m[type];
-  return <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:99,background:bg,color:fg,fontSize:11,fontWeight:600,fontFamily:font.sans}}>{children}</span>;
+  return <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 12px",borderRadius:99,background:bg,color:fg,fontSize:11,fontWeight:600,fontFamily:font.sans,border:`1px solid ${fg}22`}}>{children}</span>;
 };
-const Slider = ({label,min,max,step,value,onChange,unit=""}) => (
-  <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
-    <span style={{fontSize:12,color:T.textSub,minWidth:150,fontFamily:font.sans}}>{label}</span>
-    <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} style={{flex:1,maxWidth:200}}/>
-    <span style={{fontSize:12,fontWeight:600,color:T.text,minWidth:72,fontFamily:font.mono}}>{value}{unit}</span>
-  </div>
-);
+const Slider = ({label,min,max,step,value,onChange,unit=""}) => {
+  const fill = ((value-min)/(max-min))*100;
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:10}}>
+      <span style={{fontSize:12,color:T.textSub,minWidth:155,fontFamily:font.sans,fontWeight:500}}>{label}</span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} style={{flex:1,maxWidth:220,"--fill":`${fill}%`}}/>
+      <span style={{fontSize:13,fontWeight:700,color:T.text,minWidth:78,fontFamily:font.mono,background:T.surfaceAlt,padding:"4px 10px",borderRadius:8,border:`1px solid ${T.border}`,textAlign:"center"}}>{value}{unit}</span>
+    </div>
+  );
+};
 const Seg = ({options,value,onChange}) => (
-  <div style={{display:"inline-flex",border:`1px solid ${T.border}`,borderRadius:8,overflow:"hidden",background:T.surfaceAlt}}>
+  <div style={{display:"inline-flex",borderRadius:10,overflow:"hidden",background:T.surfaceAlt,border:`1px solid ${T.border}`,padding:2}}>
     {options.map(o=>(
-      <button key={o} className="segopt" onClick={()=>onChange(o)} style={{padding:"5px 14px",border:"none",borderRight:`1px solid ${T.border}`,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:font.sans,background:value===o?T.surface:"transparent",color:value===o?T.blue:T.textSub,boxShadow:value===o?"0 1px 3px rgba(0,0,0,.07)":"none",transition:"all .13s"}}>{o}</button>
+      <button key={o} className="seg-btn" onClick={()=>onChange(o)} style={{padding:"6px 16px",border:"none",borderRadius:8,fontSize:12,fontWeight:600,background:value===o?T.surface:"transparent",color:value===o?T.blue:T.textSub,boxShadow:value===o?"var(--shadow-sm)":"none"}}>{o}</button>
     ))}
   </div>
 );
-const Card = ({children,style}) => (
-  <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:11,padding:"14px 16px",boxShadow:"0 1px 4px rgba(0,0,0,.04)",...style}}>{children}</div>
+const Card = ({children,style,accent}) => (
+  <div className="card-hover" style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,padding:"18px 20px",boxShadow:"var(--shadow-sm)",borderLeft:accent?`4px solid ${accent}`:undefined,...style}}>{children}</div>
 );
 const SectionLabel = ({children}) => (
-  <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:7,marginTop:14,fontFamily:font.mono,fontWeight:500}}>{children}</div>
+  <div style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,marginTop:18,fontFamily:font.mono,fontWeight:600}}>{children}</div>
 );
-const WavePanel = ({id,height=120,label,note}) => (
-  <div style={{marginBottom:12}}>
-    {label&&<div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:5}}>
-      <span style={{fontSize:10,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:font.mono,fontWeight:500}}>{label}</span>
-      {note&&<span style={{fontSize:10,color:T.textMuted,fontFamily:font.sans}}>{note}</span>}
+const WavePanel = ({id,height=160,label,note}) => (
+  <div style={{marginBottom:14}}>
+    {label&&<div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:6}}>
+      <span style={{fontSize:11,color:T.textSub,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:font.mono,fontWeight:600}}>{label}</span>
+      {note&&<span style={{fontSize:10,color:T.textMuted,fontFamily:font.sans}}>— {note}</span>}
     </div>}
-    <canvas id={id} style={{width:"100%",height,display:"block",borderRadius:9,border:`1px solid ${T.border}`,boxShadow:"inset 0 1px 2px rgba(0,0,0,.03)"}}/>
+    <canvas id={id} className="wave-canvas" style={{width:"100%",height,display:"block"}}/>
   </div>
 );
 const NavBtn = ({dir,onClick,label}) => (
-  <button className="nbtn" onClick={onClick} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",border:`1px solid ${T.border}`,borderRadius:8,background:T.surface,color:T.blue,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:font.sans,boxShadow:"0 1px 3px rgba(0,0,0,.04)",transition:"all .13s"}}>
+  <button className="nav-btn" onClick={onClick} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 18px",borderRadius:10,color:T.textSub,fontSize:12,fontWeight:600,fontFamily:font.sans}}>
     {dir==="prev"&&"←"} {label} {dir==="next"&&"→"}
   </button>
 );
 
 // ═══════════════════════════════════════════════════════════════════
-// STAGE 0 — MESSAGE INPUT  (entry point, always visible at top)
-// ═══════════════════════════════════════════════════════════════════
-const MessageBanner = ({message, onMessage, onTabChange}) => (
-  <div style={{background:T.surface,borderBottom:`1px solid ${T.border}`,padding:"10px 20px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",flexShrink:0}}>
-    <span style={{fontSize:11,fontWeight:600,color:T.textSub,fontFamily:font.mono,textTransform:"uppercase",letterSpacing:"0.07em"}}>Message</span>
-    <input
-      value={message}
-      onChange={e=>onMessage(e.target.value.slice(0,16))}
-      placeholder="Type a message…"
-      style={{padding:"6px 10px",border:`1px solid ${T.border}`,borderRadius:8,background:T.surfaceAlt,color:T.text,fontFamily:font.mono,fontSize:14,outline:"none",width:200,fontWeight:500}}
-    />
-    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-      {message.split("").map((ch,i)=>(
-        <span key={i} style={{padding:"3px 8px",borderRadius:6,background:T.blueLight,color:T.blue,fontFamily:font.mono,fontSize:12,fontWeight:600}}>{ch}</span>
-      ))}
-      {message&&<span style={{fontSize:11,color:T.textMuted,fontFamily:font.mono,marginLeft:4}}>{message.length * 8} bits</span>}
-    </div>
-    <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
-      <span style={{fontSize:11,color:T.textMuted,fontFamily:font.sans}}>This message flows through every stage below →</span>
-    </div>
-  </div>
-);
-
-// ═══════════════════════════════════════════════════════════════════
 // TAB 1 — ANALOG SIGNAL
-// Shows: raw NRZ analog from message bits
 // ═══════════════════════════════════════════════════════════════════
 const AnalogTab = ({pipeline, st, dispatch, onTabChange}) => {
   const {analogSig, bits} = pipeline;
@@ -255,9 +224,9 @@ const AnalogTab = ({pipeline, st, dispatch, onTabChange}) => {
       const spb = Math.floor(analogSig.length / Math.max(bits.length,1));
       ctx.strokeStyle=T.border; ctx.lineWidth=0.5;
       for(let i=1;i<bits.length;i++){const x=i*spb/analogSig.length*W;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-      drawWave(ctx,analogSig,T.blue,W,H,-1.2,1.2,2);
+      drawWave(ctx,analogSig,T.cyan,W,H,-1.2,1.2,2);
       // Label first few bits
-      ctx.fillStyle=T.textMuted; ctx.font=`9px ${font.mono}`;
+      ctx.fillStyle="rgba(148,163,184,0.7)"; ctx.font=`9px ${font.mono}`;
       for(let i=0;i<Math.min(bits.length,20);i++){
         const x=(i+0.5)*spb/analogSig.length*W;
         ctx.fillText(bits[i],x-3,10);
@@ -281,7 +250,7 @@ const AnalogTab = ({pipeline, st, dispatch, onTabChange}) => {
         <Metric label="Bits from message" value={bits.length} accent={T.blue}/>
         <Metric label="Data Rate" value={`${sigFreq} bps`}/>
       </div>
-      <WavePanel id="cAnalog" height={140} label="Continuous Analog Waveform" note="smoothed band-limited signal — bit values shown above for reference"/>
+      <WavePanel id="cAnalog" height={180} label="Continuous Analog Waveform" note="smoothed band-limited signal · bit values shown above"/>
       <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
         <NavBtn dir="next" label="Next: PCM" onClick={()=>onTabChange(1)}/>
       </div>
@@ -308,22 +277,77 @@ const PCMTab = ({pipeline, st, dispatch, onTabChange}) => {
       const r=setupCanvas(c2); if(!r)return;
       const {ctx,W,H}=r; drawBg(ctx,W,H);
       drawWave(ctx,recon,T.teal+"99",W,H,-1.2,1.2,1.5);
-      drawWave(ctx,analogSig,T.blue,W,H,-1.2,1.2,1.5);
+      drawWave(ctx,analogSig,T.cyan,W,H,-1.2,1.2,1.5);
       const N=analogSig.length;
       for(let i=0;i<sampIdx.length;i++){
         const x=sampIdx[i]/N*W, y=H/2-sampVals[i]/2.4*H;
         ctx.strokeStyle=T.amber;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,H/2);ctx.lineTo(x,y);ctx.stroke();
-        ctx.fillStyle=T.amber;ctx.beginPath();ctx.arc(x,y,2.5,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle=T.amber;ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
       }
     }
-    // Quantisation
+    // Quantisation — show sampled ZOH signal as input, quantized as output
     const c1=document.getElementById("cQuant");
-    if(c1&&src&&quantisedSig){
+    const reconSig = sampledData ? sampledData.recon : analogSig;
+    if(c1&&reconSig&&quantisedSig){
       const r=setupCanvas(c1); if(!r)return;
-      const {ctx,W,H}=r; drawBg(ctx,W,H);
-      drawWave(ctx,src,T.blue,W,H,-1.2,1.2,1.5);
-      drawWave(ctx,quantisedSig,T.teal,W,H,-1.2,1.2,2);
-      for(let i=0;i<src.length;i++) if(Math.abs(src[i])>1.01){ctx.fillStyle=T.red;ctx.beginPath();ctx.arc(i/src.length*W,H/2-quantisedSig[i]/2.4*H,3.5,0,Math.PI*2);ctx.fill();}
+      const {ctx,W,H}=r;
+
+      const levels = Math.pow(2, bitDepth);
+      const ymin = -1.3, ymax = 1.3, yR = ymax - ymin;
+      const toY = v => H - (v - ymin) / yR * H;
+
+      // Background
+      ctx.fillStyle=T.canvasBg; ctx.fillRect(0,0,W,H);
+
+      // Draw quantization level grid lines (up to 32 levels)
+      if (levels <= 32) {
+        for (let i = 0; i < levels; i++) {
+          const levelVal = (i / (levels - 1)) * 2 - 1;
+          const y = toY(levelVal);
+          ctx.strokeStyle = T.purple + "40";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 5]);
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+          // Label on the right
+          ctx.fillStyle = T.purple + "AA";
+          ctx.font = `bold 9px ${font.mono}`;
+          ctx.fillText(`${i}`, W - 16, y - 3);
+        }
+        ctx.setLineDash([]);
+      }
+
+      // Zero line
+      ctx.strokeStyle = T.canvasGridMid; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, toY(0)); ctx.lineTo(W, toY(0)); ctx.stroke();
+
+      // Draw sampled ZOH reconstruction (blue, thin) — this is the INPUT to quantization
+      ctx.beginPath(); ctx.strokeStyle = T.blue; ctx.lineWidth = 1.5;
+      for (let i = 0; i < reconSig.length; i++) {
+        const x = i / reconSig.length * W, y = toY(reconSig[i]);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Draw quantized staircase (teal, thick) — this is the OUTPUT
+      ctx.beginPath(); ctx.strokeStyle = T.teal; ctx.lineWidth = 2.5;
+      for (let i = 0; i < quantisedSig.length; i++) {
+        const x = i / quantisedSig.length * W, y = toY(quantisedSig[i]);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Highlight quantization error as filled area between input and output
+      ctx.fillStyle = T.amber + "25";
+      ctx.beginPath();
+      for (let i = 0; i < reconSig.length; i++) {
+        const x = i / reconSig.length * W;
+        i === 0 ? ctx.moveTo(x, toY(reconSig[i])) : ctx.lineTo(x, toY(reconSig[i]));
+      }
+      for (let i = reconSig.length - 1; i >= 0; i--) {
+        const x = i / reconSig.length * W;
+        ctx.lineTo(x, toY(quantisedSig[i]));
+      }
+      ctx.closePath(); ctx.fill();
     }
     // Encoding
     const grid=document.getElementById("bitGrid");
@@ -368,7 +392,7 @@ const PCMTab = ({pipeline, st, dispatch, onTabChange}) => {
           <Metric label="Status" value={aliasing?<Badge type="red">Aliasing!</Badge>:<Badge type="green">OK</Badge>}/>
         </div>
       </Card>
-      <WavePanel id="cSampled" height={110} label="Sampled signal" note="blue = original · amber = samples · teal = reconstructed"/>
+      <WavePanel id="cSampled" height={140} label="Sampled signal" note="cyan = original · amber = samples · teal = reconstructed"/>
       
       <Card style={{marginTop:16,marginBottom:16}}>
         <div style={{fontSize:12,color:T.textSub,marginBottom:12,fontFamily:font.sans}}>
@@ -381,7 +405,7 @@ const PCMTab = ({pipeline, st, dispatch, onTabChange}) => {
           <Metric label="Step size" value={(2/(Math.pow(2,bitDepth)-1)).toFixed(5)}/>
         </div>
       </Card>
-      <WavePanel id="cQuant" height={130} label="Quantisation" note="blue = sampled input · teal = staircase output · red = clipping"/>
+      <WavePanel id="cQuant" height={200} label="Quantisation" note="blue = analog input · teal = quantized staircase · amber fill = quantization error"/>
       
       <SectionLabel>Step 3: Encoding (Binary bitstream — first 32 samples)</SectionLabel>
       <div id="bitGrid" style={{display:"flex",flexWrap:"wrap",gap:2,marginBottom:8}}/>
@@ -407,8 +431,38 @@ const ModTab = ({pipeline, st, dispatch, onTabChange}) => {
     const c1=document.getElementById("cBB");
     if(c1&&quantisedSig){
       const r=setupCanvas(c1); if(!r)return;
-      const {ctx,W,H}=r; drawBg(ctx,W,H);
-      drawWave(ctx,quantisedSig,T.amber,W,H,-1.2,1.2,1.8);
+      const {ctx,W,H}=r;
+      const levels = Math.pow(2, st.bits);
+      const ymin = -1.3, ymax = 1.3, yR = ymax - ymin;
+      const toY = v => H - (v - ymin) / yR * H;
+
+      // Background
+      ctx.fillStyle=T.canvasBg; ctx.fillRect(0,0,W,H);
+
+      // Draw quantization level grid lines (up to 16 levels for clarity)
+      if (levels <= 16) {
+        for (let i = 0; i < levels; i++) {
+          const levelVal = (i / (levels - 1)) * 2 - 1;
+          const y = toY(levelVal);
+          ctx.strokeStyle = T.purple + "30";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 5]);
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+
+      // Zero line
+      ctx.strokeStyle = T.canvasGridMid; ctx.lineWidth = 0.75;
+      ctx.beginPath(); ctx.moveTo(0, toY(0)); ctx.lineTo(W, toY(0)); ctx.stroke();
+
+      // Draw quantized signal
+      ctx.beginPath(); ctx.strokeStyle = T.amber; ctx.lineWidth = 2;
+      for (let i = 0; i < quantisedSig.length; i++) {
+        const x = i / quantisedSig.length * W, y = toY(quantisedSig[i]);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
     }
     const c2=document.getElementById("cModOut");
     if(c2&&modulatedSig){
@@ -452,7 +506,7 @@ const ModTab = ({pipeline, st, dispatch, onTabChange}) => {
         ctx.fillStyle=T.textSub;ctx.font=`bold 10px ${font.mono}`;ctx.fillText(p.l,W/2+p.x*W*.38+10,H/2-p.y*H*.38+4);
       });
     }
-  },[bits,modulatedSig,quantisedSig,modType]);
+  },[bits,modulatedSig,quantisedSig,modType,st.bits]);
 
   useEffect(()=>{raf.current=requestAnimationFrame(draw);return()=>cancelAnimationFrame(raf.current);},[draw]);
 
@@ -476,8 +530,8 @@ const ModTab = ({pipeline, st, dispatch, onTabChange}) => {
           {modType === "FSK" && <div><Slider label="FSK Deviation (Δf)" min={1} max={6} step={0.5} value={st.fskDf} onChange={v=>dispatch({type:"set",key:"fskDf",value:v})} unit=" Hz"/></div>}
         </div>
       </Card>
-      <WavePanel id="cBB" height={80} label="Quantised input signal" note="from Stage 2"/>
-      <WavePanel id="cModOut" height={120} label="Modulated output" note={modType==="PSK"?"red dashed = phase flip":modType==="FSK"?"f_hi / f_lo bands shown":"amplitude keying"}/>
+      <WavePanel id="cBB" height={140} label="Quantised input signal" note={`from Stage 2 — ${Math.pow(2,st.bits)} levels (${st.bits}-bit)`}/>
+      <WavePanel id="cModOut" height={160} label="Modulated output" note={modType==="PSK"?"red dashed = phase flip":modType==="FSK"?"f_hi / f_lo bands shown":"amplitude keying"}/>
       <div style={{display:"flex",gap:16,alignItems:"flex-start",marginTop:4}}>
         <div>
           <SectionLabel>IQ Constellation</SectionLabel>
@@ -562,9 +616,9 @@ const NoiseTab = ({pipeline, st, dispatch, onTabChange}) => {
         <Metric label="Noise σ" value={(1/Math.sqrt(Math.pow(10,noisePower/10))).toFixed(3)}/>
         {simResult!==null&&<Metric label="Empirical BER" value={simResult.toFixed(4)} accent={T.red}/>}
       </div>
-      <WavePanel id="cModClean" height={90} label="Modulated signal" note="from Stage 3"/>
-      <WavePanel id="cModNoisy" height={90} label="After AWGN noise"/>
-      <WavePanel id="cEye" height={120} label="Eye diagram — overlaid symbol periods"/>
+      <WavePanel id="cModClean" height={120} label="Modulated signal" note="from Stage 3"/>
+      <WavePanel id="cModNoisy" height={120} label="After AWGN noise"/>
+      <WavePanel id="cEye" height={160} label="Eye diagram — overlaid symbol periods"/>
       <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:16,marginTop:8,alignItems:"start"}}>
         <WavePanel id="cBER" height={180} label="BER vs SNR" note="teal = BPSK theory · amber = current · red = simulation"/>
         <div style={{paddingTop:20}}>
@@ -609,54 +663,95 @@ const ECTab = ({pipeline, st, dispatch, onTabChange}) => {
   const renderHamming = () => {
     // Encode every character in the message, not just first 3
     const chars = message.split("");
-    return chars.map((ch,ci)=>{
+    let decodedMessage = "";
+    
+    const elements = chars.map((ch,ci)=>{
       const byte=ch.charCodeAt(0);
       // Encode both nibbles for full byte fidelity
       const nibbles=[
         [(byte>>7)&1,(byte>>6)&1,(byte>>5)&1,(byte>>4)&1],
         [(byte>>3)&1,(byte>>2)&1,(byte>>1)&1,(byte>>0)&1],
       ];
+      let reconstructedByte = 0;
+      
+      const nibbleViews = nibbles.map((nibble,ni)=>{
+        const cw=hammingEncode(nibble);
+        const {received,errorPositions}=injectErrors(cw,errorsPerCW);
+        const {corrected,errPos}=hammingDecode(received);
+        const correctedNibble=corrected.slice(0,4);
+        const decodedByte=nibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
+        const correctedVal=correctedNibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
+        reconstructedByte |= (correctedVal << (ni===0?4:0));
+        return (
+          <div key={ni} style={{marginBottom:ni===0?12:0,paddingBottom:ni===0?12:0,borderBottom:ni===0?`1px solid ${T.border}`:"none"}}>
+            <div style={{fontSize:10,color:T.textMuted,fontFamily:font.mono,marginBottom:8}}>
+              {ni===0?"High":"Low"} nibble: <b style={{color:T.amber}}>{nibble.join("")}</b>
+            </div>
+            <BitRow bits={cw} label="encoded" parity={[4,5,6]}/>
+            <BitRow bits={received} label="received" errors={errorPositions}/>
+            <BitRow bits={corrected} label="corrected" parity={[4,5,6]} errors={errPos>=0?[errPos]:[]}/>
+            <div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              {errorsPerCW===0&&<Badge type="green">No errors injected</Badge>}
+              {errPos>=0&&errorsPerCW===1&&<Badge type="green">✓ Corrected bit {errPos+1}</Badge>}
+              {errorsPerCW>1&&<Badge type="amber">⚠ Multiple errors</Badge>}
+              {decodedByte!==correctedVal?
+                <Badge type="red">Nibble changed: {decodedByte} → {correctedVal}</Badge>:
+                errorsPerCW>0?<Badge type="green">Nibble intact after correction</Badge>:null}
+            </div>
+          </div>
+        );
+      });
+      
+      const isPrintable = reconstructedByte >= 32 && reconstructedByte <= 126;
+      const decodedChar = isPrintable ? String.fromCharCode(reconstructedByte) : "";
+      decodedMessage += decodedChar;
+
       return (
         <Card key={ci} style={{marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
             <span style={{fontSize:14,fontWeight:700,fontFamily:font.mono,color:T.text,background:T.blueLight,padding:"3px 10px",borderRadius:6}}>{ch}</span>
             <span style={{fontSize:11,color:T.textSub,fontFamily:font.mono}}>ASCII 0x{byte.toString(16).toUpperCase().padStart(2,"0")} = {byte.toString(2).padStart(8,"0")}</span>
+            <span style={{fontSize:14,fontWeight:700,fontFamily:font.mono,color:byte===reconstructedByte?T.green:T.red,background:byte===reconstructedByte?T.greenLight:T.redLight,padding:"3px 10px",borderRadius:6,marginLeft:"auto"}}>→ {decodedChar}</span>
           </div>
-          {nibbles.map((nibble,ni)=>{
-            const cw=hammingEncode(nibble);
-            const {received,errorPositions}=injectErrors(cw,errorsPerCW);
-            const {corrected,errPos}=hammingDecode(received);
-            const correctedNibble=corrected.slice(0,4);
-            const decodedByte=nibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
-            const correctedVal=correctedNibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
-            return (
-              <div key={ni} style={{marginBottom:ni===0?12:0,paddingBottom:ni===0?12:0,borderBottom:ni===0?`1px solid ${T.border}`:"none"}}>
-                <div style={{fontSize:10,color:T.textMuted,fontFamily:font.mono,marginBottom:8}}>
-                  {ni===0?"High":"Low"} nibble: <b style={{color:T.amber}}>{nibble.join("")}</b>
-                </div>
-                <BitRow bits={cw} label="encoded" parity={[4,5,6]}/>
-                <BitRow bits={received} label="received" errors={errorPositions}/>
-                <BitRow bits={corrected} label="corrected" parity={[4,5,6]} errors={errPos>=0?[errPos]:[]}/>
-                <div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                  {errorsPerCW===0&&<Badge type="green">No errors injected</Badge>}
-                  {errPos>=0&&errorsPerCW===1&&<Badge type="green">✓ Corrected bit {errPos+1}</Badge>}
-                  {errorsPerCW>1&&<Badge type="amber">⚠ Multiple errors</Badge>}
-                  {decodedByte!==correctedVal?
-                    <Badge type="red">Nibble changed: {decodedByte} → {correctedVal}</Badge>:
-                    errorsPerCW>0?<Badge type="green">Nibble intact after correction</Badge>:null}
-                </div>
-              </div>
-            );
-          })}
+          {nibbleViews}
         </Card>
       );
     });
+
+    return (
+      <>
+        <Card style={{marginBottom:16}}>
+          <div style={{fontSize:12,color:T.textSub,marginBottom:6,fontFamily:font.sans}}>Final Output Message:</div>
+          <div style={{fontSize:18,fontWeight:700,fontFamily:font.mono,color:message===decodedMessage?T.green:T.red}}>{decodedMessage}</div>
+        </Card>
+        {elements}
+      </>
+    );
   };
 
   const renderCRC = () => {
     const msgBytes=message.split("").map(c=>c.charCodeAt(0));
-    const cs=crc8(msgBytes),eb=cs^(errorsPerCW>0?(1<<(errorsPerCW-1)):0),ok=eb===cs;
+    
+    // Simulate error in message if errorsPerCW > 0
+    const receivedBytes = [...msgBytes];
+    if (errorsPerCW > 0) {
+       for(let i=0; i<Math.min(errorsPerCW, receivedBytes.length); i++) {
+          receivedBytes[i] ^= (1 << (Math.floor(Math.random() * 8))); // flip a random bit in this byte
+       }
+    }
+    
+    const cs=crc8(msgBytes);
+    const eb=crc8(receivedBytes);
+    const ok=eb===cs && message === receivedBytes.map(b => String.fromCharCode(b)).join("");
+    
+    const decodedMessage = receivedBytes.map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : "").join("");
+
     return (
+      <>
+      <Card style={{marginBottom:16}}>
+        <div style={{fontSize:12,color:T.textSub,marginBottom:6,fontFamily:font.sans}}>Final Output Message:</div>
+        <div style={{fontSize:18,fontWeight:700,fontFamily:font.mono,color:message===decodedMessage?T.green:T.red}}>{decodedMessage}</div>
+      </Card>
       <Card>
         <div style={{fontSize:12,color:T.textSub,marginBottom:12,fontFamily:font.sans}}>
           CRC-8 checksum for the full message <b style={{fontFamily:font.mono,color:T.text}}>"{message}"</b>:
@@ -665,15 +760,19 @@ const ECTab = ({pipeline, st, dispatch, onTabChange}) => {
           <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Message bytes</span>
             {msgBytes.map((b,i)=><span key={i} style={{color:T.blue,marginRight:6,background:T.blueLight,padding:"0 6px",borderRadius:4}}>0x{b.toString(16).padStart(2,"0").toUpperCase()}</span>)}
           </div>
-          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>CRC-8 checksum</span>
+          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Original CRC</span>
             <span style={{color:T.amber,background:T.amberLight,padding:"0 6px",borderRadius:4}}>0x{cs.toString(16).padStart(2,"0").toUpperCase()}</span>
           </div>
-          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Received checksum</span>
+          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Received MSG bytes</span>
+            {receivedBytes.map((b,i)=><span key={i} style={{color:b===msgBytes[i]?T.blue:T.red,marginRight:6,background:b===msgBytes[i]?T.blueLight:T.redLight,padding:"0 6px",borderRadius:4}}>0x{b.toString(16).padStart(2,"0").toUpperCase()}</span>)}
+          </div>
+          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Received CRC</span>
             <span style={{color:ok?T.green:T.red,background:ok?T.greenLight:T.redLight,padding:"0 6px",borderRadius:4}}>0x{eb.toString(16).padStart(2,"0").toUpperCase()}</span>
           </div>
         </div>
         <div style={{marginTop:12}}>{ok?<Badge type="green">✓ CRC OK — no errors</Badge>:<Badge type="red">✗ CRC mismatch — error detected</Badge>}</div>
       </Card>
+      </>
     );
   };
 
@@ -709,43 +808,46 @@ const ECTab = ({pipeline, st, dispatch, onTabChange}) => {
 // ═══════════════════════════════════════════════════════════════════
 // PIPELINE HEADER
 // ═══════════════════════════════════════════════════════════════════
-const PipelineBar = ({st, pipeline, activeTab, onTabChange}) => {
+const StepperNav = ({st, pipeline, activeTab, onTabChange}) => {
   const aliasing = st.sigFreq > st.fs/2;
   const ber = berBPSK(st.noisePower);
-  const stages = [
-    {label:"Source",   metric:`"${st.message.slice(0,6)}${st.message.length>6?"…":""}"`, sub:`${pipeline.bits.length} bits`, tab:0},
-    {label:"Analog",   metric:`${st.sigFreq} Hz`, tab:0},
-    {label:"PCM",      metric:`${st.fs}Hz / ${st.bits}b`, warn:aliasing, tab:1},
-    {label:"Modulate", metric:st.modType, tab:2},
-    {label:"Noise",    metric:`SNR ${st.noisePower}dB`, tab:3},
-    {label:"Decode",   metric:ber<0.001?"BER < 0.001":`BER ${ber.toFixed(3)}`, tab:4},
+  const steps = [
+    {name:"Analog",icon:"〜",metric:`${st.sigFreq} Hz`},
+    {name:"PCM",icon:"⊞",metric:`${st.fs}Hz · ${st.bits}b`,warn:aliasing},
+    {name:"Modulate",icon:"∿",metric:st.modType},
+    {name:"Noise",icon:"⚡",metric:`${st.noisePower} dB`},
+    {name:"Decode",icon:"✓",metric:ber<0.001?"BER < 0.001":`BER ${ber.toFixed(3)}`},
   ];
   return (
-    <div style={{display:"flex",alignItems:"center",padding:"8px 0 10px",overflowX:"auto",gap:0,flexShrink:0}}>
-      {stages.map((s,i)=>(
-        <div key={i} style={{display:"flex",alignItems:"center",flexShrink:0}}>
-          <div className="pnode" onClick={()=>onTabChange(s.tab)} style={{
-            padding:"5px 11px",borderRadius:8,cursor:"pointer",textAlign:"center",minWidth:82,
-            border:`1px solid ${s.tab===activeTab?T.blue+"88":T.border}`,
-            background:s.tab===activeTab?T.blueLight:T.surfaceAlt,
-            boxShadow:s.tab===activeTab?"0 2px 6px rgba(33,84,232,.1)":"0 1px 2px rgba(0,0,0,.04)",
-            transition:"all .13s"
-          }}>
-            <div style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:1,fontFamily:font.mono}}>{s.label}</div>
-            <div style={{fontSize:11,fontWeight:700,color:s.warn?T.red:s.tab===activeTab?T.blue:T.text,fontFamily:font.mono}}>{s.metric}</div>
-            {s.sub&&<div style={{fontSize:9,color:T.textMuted,fontFamily:font.mono,marginTop:1}}>{s.sub}</div>}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"10px 0",gap:0}}>
+      {steps.map((s,i)=>{
+        const active=i===activeTab, done=i<activeTab;
+        return (
+          <div key={i} style={{display:"flex",alignItems:"center",flexShrink:0}} className="step-node">
+            <div onClick={()=>onTabChange(i)} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer",minWidth:72,padding:"4px 6px"}}>
+              <div className="step-circle" style={{
+                width:32,height:32,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:active?14:12,fontWeight:700,fontFamily:font.mono,
+                background:active?T.blue:done?T.green+"18":T.surfaceAlt,
+                color:active?"#fff":done?T.green:T.textMuted,
+                border:`2px solid ${active?T.blue:done?T.green+"44":T.border}`,
+                boxShadow:active?"0 0 0 4px rgba(59,130,246,0.15)":"none",
+                transition:"all 0.2s ease"
+              }}>{done?"✓":i+1}</div>
+              <span className="step-label" style={{fontSize:10,fontWeight:600,color:active?T.blue:done?T.green:T.textMuted,fontFamily:font.sans,whiteSpace:"nowrap"}}>{s.name}</span>
+              <span className="step-metric" style={{fontSize:9,fontWeight:500,color:s.warn?T.red:active?T.blue:T.textMuted,fontFamily:font.mono}}>{s.metric}</span>
+            </div>
+            {i<steps.length-1&&<div style={{width:40,height:2,background:i<activeTab?T.green+"44":T.border,borderRadius:1,flexShrink:0,transition:"background 0.3s"}}/>}
           </div>
-          {i<stages.length-1&&<div style={{padding:"0 3px",color:T.borderStrong,fontSize:14,fontFamily:font.mono}}>›</div>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
 
 // ═══════════════════════════════════════════════════════════════════
-// APP ROOT — single pipeline state, computed once, passed to all tabs
+// APP ROOT
 // ═══════════════════════════════════════════════════════════════════
-const TABS = ["1. Analog Signal","2. PCM","3. Modulation","4. Noise","5. Error Correction"];
 
 export default function App() {
   const [tab, setTab] = useState(0);
@@ -761,68 +863,57 @@ export default function App() {
     return s;
   }),[]);
 
-  // ── CENTRAL PIPELINE ──────────────────────────────────────────
-  // Recomputed whenever any parameter changes. All tabs read from here.
   const pipeline = useMemo(()=>{
     const message = st.message || "HELLO";
-    const bits = msgToBits(message);                          // raw bit array
-    const SPB = 48;                                           // samples per bit
-    const analogSig = bitsToAnalog(bits, SPB);               // NRZ analog
-    const sampledData = sampleSignal(analogSig, st.fs, st.sigFreq, SPB); // sampled
-    const quantisedSig = quantise(sampledData.recon, st.bits);// quantised
-    const modulatedSig = modulate(bits, st.modType, SPB, st.fc, st.askA0, st.fskDf);    // modulated
-    const noisySig = addAWGN(modulatedSig, st.noisePower);    // + noise
+    const bits = msgToBits(message);
+    const SPB = 48;
+    const analogSig = bitsToAnalog(bits, SPB);
+    const sampledData = sampleSignal(analogSig, st.fs, st.sigFreq, SPB);
+    const quantisedSig = quantise(sampledData.recon, st.bits);
+    const modulatedSig = modulate(bits, st.modType, SPB, st.fc, st.askA0, st.fskDf);
+    const noisySig = addAWGN(modulatedSig, st.noisePower);
     return {message, bits, analogSig, sampledData, quantisedSig, modulatedSig, noisySig};
   },[st.message, st.sigFreq, st.fs, st.bits, st.modType, st.fc, st.askA0, st.fskDf, st.noisePower]);
 
   const setTab_ = useCallback(i => setTab(Math.max(0,Math.min(4,i))),[]);
 
   return (
-    <>
-      <style>{STYLES}</style>
-      <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:500,background:T.bg,color:T.text,fontFamily:font.sans,fontSize:13,borderRadius:12,overflow:"hidden",border:`1px solid ${T.border}`,boxShadow:"0 2px 12px rgba(0,0,0,.06)"}}>
-
-        {/* ── Fixed header ── */}
-        <div style={{background:T.surface,borderBottom:`1px solid ${T.border}`,flexShrink:0}}>
-          {/* Title + message input */}
-          <div style={{padding:"10px 20px 0"}}>
-            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:4}}>
-              <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:font.mono,letterSpacing:"-0.02em"}}>Digital Comms Lab</span>
-              <span style={{fontSize:10,color:T.textMuted,fontFamily:font.sans,background:T.surfaceAlt,padding:"2px 8px",borderRadius:99,border:`1px solid ${T.border}`}}>connected pipeline</span>
-              {/* Inline message input */}
-              <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
-                <span style={{fontSize:11,color:T.textSub,fontFamily:font.mono,textTransform:"uppercase",letterSpacing:"0.07em"}}>Message</span>
-                <input
-                  value={st.message}
-                  onChange={e=>dispatch({type:"set",key:"message",value:e.target.value.slice(0,16)||"A"})}
-                  style={{padding:"5px 10px",border:`1px solid ${T.border}`,borderRadius:8,background:T.surfaceAlt,color:T.text,fontFamily:font.mono,fontSize:14,outline:"none",width:180,fontWeight:600}}
-                />
-                <span style={{fontSize:11,color:T.textMuted,fontFamily:font.mono}}>{pipeline.bits.length} bits</span>
-              </div>
+    <div style={{maxWidth:1100,margin:"0 auto",minHeight:"100vh",display:"flex",flexDirection:"column",fontFamily:font.sans}}>
+      {/* Gradient accent line */}
+      <div style={{height:3,background:"linear-gradient(90deg, #3B82F6, #8B5CF6, #14B8A6)",flexShrink:0}}/>
+      
+      {/* Header */}
+      <div style={{background:T.surface,borderBottom:`1px solid ${T.border}`,padding:"14px 24px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            {/* Logo */}
+            <div style={{fontSize: 22, fontWeight: 800, fontFamily: "'Inter',system-ui,sans-serif", color: "#3B82F6", letterSpacing: "-0.5px", paddingRight: 10}}>
+              Digital Comms Lab
             </div>
-            <PipelineBar st={st} pipeline={pipeline} activeTab={tab} onTabChange={setTab_}/>
+            <Badge type="blue">Pipeline</Badge>
           </div>
-          {/* Tab bar */}
-          <div style={{display:"flex",borderTop:`1px solid ${T.border}`,paddingLeft:8}}>
-            {TABS.map((t,i)=>(
-              <button key={i} className="tpill" onClick={()=>setTab_(i)} style={{
-                padding:"8px 14px",border:"none",borderBottom:`2px solid ${tab===i?T.blue:"transparent"}`,
-                background:"transparent",color:tab===i?T.blue:T.textSub,cursor:"pointer",
-                fontSize:12,fontWeight:600,fontFamily:font.sans,whiteSpace:"nowrap",outline:"none",transition:"all .13s"
-              }}>{t}</button>
-            ))}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginLeft:"auto"}}>
+            <span style={{fontSize:11,color:T.textMuted,fontFamily:font.mono,textTransform:"uppercase",letterSpacing:"0.08em"}}>Message</span>
+            <input
+              className="msg-input"
+              value={st.message}
+              onChange={e=>dispatch({type:"set",key:"message",value:e.target.value.slice(0,16)||"A"})}
+              style={{padding:"7px 14px",borderRadius:99,background:T.surfaceAlt,color:T.text,fontFamily:font.mono,fontSize:14,width:180,fontWeight:600}}
+            />
+            <Badge type="purple">{pipeline.bits.length} bits</Badge>
           </div>
         </div>
-
-        {/* ── Scrollable content ── */}
-        <div style={{flex:1,overflowY:"auto",padding:"18px 20px",background:T.bg}}>
-          {tab===0&&<AnalogTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
-          {tab===1&&<PCMTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
-          {tab===2&&<ModTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
-          {tab===3&&<NoiseTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
-          {tab===4&&<ECTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
-        </div>
+        <StepperNav st={st} pipeline={pipeline} activeTab={tab} onTabChange={setTab_}/>
       </div>
-    </>
+
+      {/* Tab content */}
+      <div key={tab} className="tab-content" style={{flex:1,padding:"20px 24px",background:T.bg}}>
+        {tab===0&&<AnalogTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
+        {tab===1&&<PCMTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
+        {tab===2&&<ModTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
+        {tab===3&&<NoiseTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
+        {tab===4&&<ECTab pipeline={pipeline} st={st} dispatch={dispatch} onTabChange={setTab_}/>}
+      </div>
+    </div>
   );
 }

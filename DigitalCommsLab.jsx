@@ -579,54 +579,95 @@ const ECTab = ({pipeline, st, dispatch, onTabChange}) => {
   const renderHamming = () => {
     // Encode every character in the message, not just first 3
     const chars = message.split("");
-    return chars.map((ch,ci)=>{
+    let decodedMessage = "";
+    
+    const elements = chars.map((ch,ci)=>{
       const byte=ch.charCodeAt(0);
       // Encode both nibbles for full byte fidelity
       const nibbles=[
         [(byte>>7)&1,(byte>>6)&1,(byte>>5)&1,(byte>>4)&1],
         [(byte>>3)&1,(byte>>2)&1,(byte>>1)&1,(byte>>0)&1],
       ];
+      let reconstructedByte = 0;
+      
+      const nibbleViews = nibbles.map((nibble,ni)=>{
+        const cw=hammingEncode(nibble);
+        const {received,errorPositions}=injectErrors(cw,errorsPerCW);
+        const {corrected,errPos}=hammingDecode(received);
+        const correctedNibble=corrected.slice(0,4);
+        const decodedByte=nibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
+        const correctedVal=correctedNibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
+        reconstructedByte |= (correctedVal << (ni===0?4:0));
+        return (
+          <div key={ni} style={{marginBottom:ni===0?12:0,paddingBottom:ni===0?12:0,borderBottom:ni===0?`1px solid ${T.border}`:"none"}}>
+            <div style={{fontSize:10,color:T.textMuted,fontFamily:font.mono,marginBottom:8}}>
+              {ni===0?"High":"Low"} nibble: <b style={{color:T.amber}}>{nibble.join("")}</b>
+            </div>
+            <BitRow bits={cw} label="encoded" parity={[4,5,6]}/>
+            <BitRow bits={received} label="received" errors={errorPositions}/>
+            <BitRow bits={corrected} label="corrected" parity={[4,5,6]} errors={errPos>=0?[errPos]:[]}/>
+            <div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              {errorsPerCW===0&&<Badge type="green">No errors injected</Badge>}
+              {errPos>=0&&errorsPerCW===1&&<Badge type="green">✓ Corrected bit {errPos+1}</Badge>}
+              {errorsPerCW>1&&<Badge type="amber">⚠ Multiple errors</Badge>}
+              {decodedByte!==correctedVal?
+                <Badge type="red">Nibble changed: {decodedByte} → {correctedVal}</Badge>:
+                errorsPerCW>0?<Badge type="green">Nibble intact after correction</Badge>:null}
+            </div>
+          </div>
+        );
+      });
+      
+      const isPrintable = reconstructedByte >= 32 && reconstructedByte <= 126;
+      const decodedChar = isPrintable ? String.fromCharCode(reconstructedByte) : "";
+      decodedMessage += decodedChar;
+
       return (
         <Card key={ci} style={{marginBottom:12}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
             <span style={{fontSize:14,fontWeight:700,fontFamily:font.mono,color:T.text,background:T.blueLight,padding:"3px 10px",borderRadius:6}}>{ch}</span>
             <span style={{fontSize:11,color:T.textSub,fontFamily:font.mono}}>ASCII 0x{byte.toString(16).toUpperCase().padStart(2,"0")} = {byte.toString(2).padStart(8,"0")}</span>
+            <span style={{fontSize:14,fontWeight:700,fontFamily:font.mono,color:byte===reconstructedByte?T.green:T.red,background:byte===reconstructedByte?T.greenLight:T.redLight,padding:"3px 10px",borderRadius:6,marginLeft:"auto"}}>→ {decodedChar}</span>
           </div>
-          {nibbles.map((nibble,ni)=>{
-            const cw=hammingEncode(nibble);
-            const {received,errorPositions}=injectErrors(cw,errorsPerCW);
-            const {corrected,errPos}=hammingDecode(received);
-            const correctedNibble=corrected.slice(0,4);
-            const decodedByte=nibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
-            const correctedVal=correctedNibble.reduce((a,b,i)=>a|(b<<(3-i)),0);
-            return (
-              <div key={ni} style={{marginBottom:ni===0?12:0,paddingBottom:ni===0?12:0,borderBottom:ni===0?`1px solid ${T.border}`:"none"}}>
-                <div style={{fontSize:10,color:T.textMuted,fontFamily:font.mono,marginBottom:8}}>
-                  {ni===0?"High":"Low"} nibble: <b style={{color:T.amber}}>{nibble.join("")}</b>
-                </div>
-                <BitRow bits={cw} label="encoded" parity={[4,5,6]}/>
-                <BitRow bits={received} label="received" errors={errorPositions}/>
-                <BitRow bits={corrected} label="corrected" parity={[4,5,6]} errors={errPos>=0?[errPos]:[]}/>
-                <div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-                  {errorsPerCW===0&&<Badge type="green">No errors injected</Badge>}
-                  {errPos>=0&&errorsPerCW===1&&<Badge type="green">✓ Corrected bit {errPos+1}</Badge>}
-                  {errorsPerCW>1&&<Badge type="amber">⚠ Multiple errors</Badge>}
-                  {decodedByte!==correctedVal?
-                    <Badge type="red">Nibble changed: {decodedByte} → {correctedVal}</Badge>:
-                    errorsPerCW>0?<Badge type="green">Nibble intact after correction</Badge>:null}
-                </div>
-              </div>
-            );
-          })}
+          {nibbleViews}
         </Card>
       );
     });
+
+    return (
+      <>
+        <Card style={{marginBottom:16}}>
+          <div style={{fontSize:12,color:T.textSub,marginBottom:6,fontFamily:font.sans}}>Final Output Message:</div>
+          <div style={{fontSize:18,fontWeight:700,fontFamily:font.mono,color:message===decodedMessage?T.green:T.red}}>{decodedMessage}</div>
+        </Card>
+        {elements}
+      </>
+    );
   };
 
   const renderCRC = () => {
     const msgBytes=message.split("").map(c=>c.charCodeAt(0));
-    const cs=crc8(msgBytes),eb=cs^(errorsPerCW>0?(1<<(errorsPerCW-1)):0),ok=eb===cs;
+    
+    // Simulate error in message if errorsPerCW > 0
+    const receivedBytes = [...msgBytes];
+    if (errorsPerCW > 0) {
+       for(let i=0; i<Math.min(errorsPerCW, receivedBytes.length); i++) {
+          receivedBytes[i] ^= (1 << (Math.floor(Math.random() * 8))); // flip a random bit in this byte
+       }
+    }
+    
+    const cs=crc8(msgBytes);
+    const eb=crc8(receivedBytes);
+    const ok=eb===cs && message === receivedBytes.map(b => String.fromCharCode(b)).join("");
+    
+    const decodedMessage = receivedBytes.map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : "").join("");
+
     return (
+      <>
+      <Card style={{marginBottom:16}}>
+        <div style={{fontSize:12,color:T.textSub,marginBottom:6,fontFamily:font.sans}}>Final Output Message:</div>
+        <div style={{fontSize:18,fontWeight:700,fontFamily:font.mono,color:message===decodedMessage?T.green:T.red}}>{decodedMessage}</div>
+      </Card>
       <Card>
         <div style={{fontSize:12,color:T.textSub,marginBottom:12,fontFamily:font.sans}}>
           CRC-8 checksum for the full message <b style={{fontFamily:font.mono,color:T.text}}>"{message}"</b>:
@@ -635,15 +676,19 @@ const ECTab = ({pipeline, st, dispatch, onTabChange}) => {
           <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Message bytes</span>
             {msgBytes.map((b,i)=><span key={i} style={{color:T.blue,marginRight:6,background:T.blueLight,padding:"0 6px",borderRadius:4}}>0x{b.toString(16).padStart(2,"0").toUpperCase()}</span>)}
           </div>
-          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>CRC-8 checksum</span>
+          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Original CRC</span>
             <span style={{color:T.amber,background:T.amberLight,padding:"0 6px",borderRadius:4}}>0x{cs.toString(16).padStart(2,"0").toUpperCase()}</span>
           </div>
-          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Received checksum</span>
+          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Received MSG bytes</span>
+            {receivedBytes.map((b,i)=><span key={i} style={{color:b===msgBytes[i]?T.blue:T.red,marginRight:6,background:b===msgBytes[i]?T.blueLight:T.redLight,padding:"0 6px",borderRadius:4}}>0x{b.toString(16).padStart(2,"0").toUpperCase()}</span>)}
+          </div>
+          <div><span style={{fontSize:9,color:T.textMuted,textTransform:"uppercase",letterSpacing:"0.07em",display:"inline-block",width:160}}>Received CRC</span>
             <span style={{color:ok?T.green:T.red,background:ok?T.greenLight:T.redLight,padding:"0 6px",borderRadius:4}}>0x{eb.toString(16).padStart(2,"0").toUpperCase()}</span>
           </div>
         </div>
         <div style={{marginTop:12}}>{ok?<Badge type="green">✓ CRC OK — no errors</Badge>:<Badge type="red">✗ CRC mismatch — error detected</Badge>}</div>
       </Card>
+      </>
     );
   };
 
